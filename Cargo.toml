@@ -1,0 +1,36 @@
+[package]
+name = "league-link"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+description = "Async Rust client for the League of Legends Client (LCU) API — auth discovery, HTTPS requests, and WebSocket event streaming."
+license = "MIT"
+repository = "https://github.com/QAQTam/league-link"
+documentation = "https://docs.rs/league-link"
+readme = "README.md"
+keywords = ["league-of-legends", "lcu", "riot", "lol", "tauri"]
+categories = ["api-bindings", "asynchronous"]
+
+[dependencies]
+tokio = { version = "1.51", features = ["rt", "sync", "time", "macros"] }
+reqwest = { version = "0.13", default-features = false, features = ["json", "native-tls"] }
+tokio-tungstenite = { version = "0.29", features = ["native-tls"] }
+native-tls = "0.2"
+futures-util = "0.3"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+regex = "1"
+sysinfo = "0.38"
+base64 = "0.22"
+thiserror = "2"
+
+[dev-dependencies]
+tokio = { version = "1.51", features = ["full"] }
+
+[[example]]
+name = "get_summoner"
+path = "examples/get_summoner.rs"
+
+[[example]]
+name = "watch_events"
+path = "examples/watch_events.rs"

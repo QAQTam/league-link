@@ -360,8 +360,6 @@ let creds = match try_find_lcu_async().await {
 | OS | Process scan | Lockfile | HTTP / WS |
 |---|---|---|---|
 | **Windows** | ✅ `LeagueClientUx` | ✅ | ✅ |
-| **macOS** | ⚠️ `LeagueClient` (untested — feedback welcome) | ✅ | ✅ |
-| **Linux** | ❌ (no official client) | ✅ | ✅ (works under Wine) |
 
 MSRV is **Rust 1.80**, enforced by CI.
 
@@ -417,7 +415,6 @@ redaction in `Debug`, server-side URI filtering.
 - [ ] HTTP/2 transport (LCU's preferred path)
 - [ ] Typed endpoint helpers (`get_current_summoner`, `get_lobby`, …)
 - [ ] Built-in exponential-backoff reconnect helper
-- [ ] macOS credential discovery validation
 - [ ] `tracing` integration behind a feature flag
 - [ ] Published typed schemas for common endpoints
 
@@ -425,7 +422,6 @@ redaction in `Debug`, server-side URI filtering.
 
 Issues and PRs welcome. Good first contributions:
 
-- macOS / Linux(Wine) validation
 - Typed wrappers for common endpoints
 - Examples for specific workflows (champ-select overlay, lobby bot, …)
 

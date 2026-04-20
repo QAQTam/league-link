@@ -378,8 +378,6 @@ let _: Value = lcu_post(
 | 系统 | 进程扫描 | Lockfile | HTTP / WS |
 |---|---|---|---|
 | **Windows** | ✅ `LeagueClientUx` | ✅ | ✅ |
-| **macOS** | ⚠️ `LeagueClient`(未实测,欢迎反馈) | ✅ | ✅ |
-| **Linux** | ❌(无官方客户端) | ✅ | ✅(Wine 下可用) |
 
 MSRV 为 **Rust 1.80**,CI 强制。
 
@@ -425,7 +423,6 @@ Basic Auth → WAMP 订阅),但代码是从零重写,不是翻译。
 - [ ] HTTP/2 (LCU 推荐的传输方式)
 - [ ] 类型化封装常用端点 (`get_current_summoner`、`get_lobby` 等)
 - [ ] 内置指数退避重连 helper
-- [ ] macOS 凭证发现实测验证
 - [ ] `tracing` 集成(feature flag)
 - [ ] 常用端点的 TypeScript-style schema 类型
 
@@ -433,7 +430,6 @@ Basic Auth → WAMP 订阅),但代码是从零重写,不是翻译。
 
 欢迎提 issue / PR,以下方向尤其需要:
 
-- macOS / Linux(Wine)实测验证
 - 常用端点的类型化封装
 - 特定场景示例(选英雄助手、房间机器人、BP 叠加层 ...)
 

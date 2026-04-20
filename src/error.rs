@@ -3,7 +3,7 @@ use thiserror::Error;
 /// The unified error type for all `league-link` operations.
 #[derive(Debug, Error)]
 pub enum LcuError {
-    /// No running `LeagueClientUx` process was found.
+    /// No running League Client process was found.
     #[error("League Client is not running")]
     NotRunning,
 
@@ -13,13 +13,19 @@ pub enum LcuError {
     #[error("authentication timed out")]
     AuthTimeout,
 
-    /// Underlying `reqwest` transport error (DNS, TLS, body decode, …).
+    /// Underlying `reqwest` transport error (DNS, TLS, body decode, timeout, …).
     #[error("HTTP error: {0}")]
     Http(#[from] reqwest::Error),
 
     /// The LCU returned a non-2xx status code.
-    #[error("HTTP status {0}")]
-    Status(u16),
+    #[error("HTTP status {code}: {body}")]
+    Status {
+        /// The HTTP status code returned by the LCU.
+        code: u16,
+        /// Response body verbatim — typically a JSON error payload such as
+        /// `{"errorCode":"RESOURCE_NOT_FOUND","message":"..."}`.
+        body: String,
+    },
 
     /// WebSocket-level error from `tokio-tungstenite`.
     #[error("WebSocket error: {0}")]
@@ -29,9 +35,13 @@ pub enum LcuError {
     #[error("TLS error: {0}")]
     Tls(#[from] native_tls::Error),
 
-    /// Could not build the `Authorization` header.
+    /// Could not construct a valid `Authorization` header from the credentials.
+    ///
+    /// The contained string is the source error's display message; the
+    /// concrete dependency type is intentionally not exposed so that
+    /// `tungstenite` upgrades are not breaking changes for this crate.
     #[error("invalid header value: {0}")]
-    InvalidHeader(#[from] tokio_tungstenite::tungstenite::http::header::InvalidHeaderValue),
+    InvalidHeader(String),
 
     /// JSON (de)serialization failure.
     #[error("JSON error: {0}")]

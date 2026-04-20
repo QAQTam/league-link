@@ -1,57 +1,91 @@
 //! HTTPS requests to the LCU REST API.
 //!
 //! The LCU uses a Riot self-signed TLS certificate. [`build_lcu_client`]
-//! returns a `reqwest::Client` configured to accept it. **Reuse this
-//! client** — it maintains an internal connection pool.
+//! returns a `reqwest::Client` configured to accept it, with a 10-second
+//! request timeout. **Reuse this client** — it maintains an internal
+//! connection pool.
+
+use std::time::Duration;
 
 use reqwest::{Client, ClientBuilder, Method};
-use serde::de::DeserializeOwned;
-use serde_json::Value;
+use serde::{de::DeserializeOwned, Serialize};
 
 use crate::{auth::Credentials, error::LcuError};
+
+/// Default per-request timeout applied by [`build_lcu_client`].
+pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Build a reusable HTTP client configured for the LCU API.
 ///
 /// TLS certificate and hostname verification are disabled — required
 /// because the LCU serves a Riot-signed certificate for `127.0.0.1`.
+/// A 10-second per-request [`timeout`](DEFAULT_TIMEOUT) is applied so a
+/// stuck client cannot hang caller tasks indefinitely.
 pub fn build_lcu_client() -> Result<Client, LcuError> {
     Ok(ClientBuilder::new()
         .danger_accept_invalid_certs(true)
         .danger_accept_invalid_hostnames(true)
+        .timeout(DEFAULT_TIMEOUT)
         .build()?)
 }
 
-// ─── Generic request ─────────────────────────────────────────
+// ─── Core ─────────────────────────────────────────────────────
 
-/// Send an HTTP request to the LCU and deserialize the JSON response.
-///
-/// Returns [`LcuError::Status`] on any non-2xx response, [`LcuError::Http`]
-/// on transport failure, or [`LcuError::Json`] if the body cannot be
-/// deserialized into `T`.
+async fn send<T, B>(
+    client: &Client,
+    credentials: &Credentials,
+    method: Method,
+    endpoint: &str,
+    body: Option<&B>,
+) -> Result<T, LcuError>
+where
+    T: DeserializeOwned,
+    B: Serialize + ?Sized,
+{
+    let url = format!("{}{}", credentials.lcu_base_url(), endpoint);
+    let mut req = client
+        .request(method, &url)
+        .header("Authorization", credentials.basic_auth())
+        .header("Accept", "application/json");
+    if let Some(b) = body {
+        req = req.json(b);
+    }
+    let resp = req.send().await?;
+    let status = resp.status();
+    if !status.is_success() {
+        let body = resp.text().await.unwrap_or_default();
+        return Err(LcuError::Status {
+            code: status.as_u16(),
+            body,
+        });
+    }
+    Ok(resp.json::<T>().await?)
+}
+
+/// Send an HTTP request with **no body** to the LCU and deserialize the
+/// JSON response as `T`.
 pub async fn lcu_request<T: DeserializeOwned>(
     client: &Client,
     credentials: &Credentials,
     method: Method,
     endpoint: &str,
-    body: Option<&Value>,
 ) -> Result<T, LcuError> {
-    let url = format!("{}{}", credentials.lcu_base_url(), endpoint);
+    send::<T, ()>(client, credentials, method, endpoint, None).await
+}
 
-    let mut req = client
-        .request(method, &url)
-        .header("Authorization", credentials.basic_auth())
-        .header("Accept", "application/json");
-
-    if let Some(json_body) = body {
-        req = req.json(json_body);
-    }
-
-    let resp = req.send().await?;
-    let status = resp.status();
-    if !status.is_success() {
-        return Err(LcuError::Status(status.as_u16()));
-    }
-    Ok(resp.json::<T>().await?)
+/// Send an HTTP request with a JSON-serializable body.
+pub async fn lcu_request_with_body<T, B>(
+    client: &Client,
+    credentials: &Credentials,
+    method: Method,
+    endpoint: &str,
+    body: &B,
+) -> Result<T, LcuError>
+where
+    T: DeserializeOwned,
+    B: Serialize + ?Sized,
+{
+    send(client, credentials, method, endpoint, Some(body)).await
 }
 
 // ─── Convenience wrappers ────────────────────────────────────
@@ -72,17 +106,24 @@ pub async fn lcu_get<T: DeserializeOwned>(
     credentials: &Credentials,
     endpoint: &str,
 ) -> Result<T, LcuError> {
-    lcu_request(client, credentials, Method::GET, endpoint, None).await
+    lcu_request(client, credentials, Method::GET, endpoint).await
 }
 
-/// `POST` to an LCU endpoint with a JSON body.
-pub async fn lcu_post<T: DeserializeOwned>(
+/// `POST` to an LCU endpoint with a JSON-serializable body.
+///
+/// Unlike v0.1.0, `body` accepts any `Serialize` type — you no longer have
+/// to pre-convert to `serde_json::Value`.
+pub async fn lcu_post<T, B>(
     client: &Client,
     credentials: &Credentials,
     endpoint: &str,
-    body: &Value,
-) -> Result<T, LcuError> {
-    lcu_request(client, credentials, Method::POST, endpoint, Some(body)).await
+    body: &B,
+) -> Result<T, LcuError>
+where
+    T: DeserializeOwned,
+    B: Serialize + ?Sized,
+{
+    lcu_request_with_body(client, credentials, Method::POST, endpoint, body).await
 }
 
 /// `DELETE` an LCU endpoint.
@@ -91,7 +132,7 @@ pub async fn lcu_delete<T: DeserializeOwned>(
     credentials: &Credentials,
     endpoint: &str,
 ) -> Result<T, LcuError> {
-    lcu_request(client, credentials, Method::DELETE, endpoint, None).await
+    lcu_request(client, credentials, Method::DELETE, endpoint).await
 }
 
 // ─── Utility ─────────────────────────────────────────────────

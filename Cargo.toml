@@ -2,7 +2,7 @@
 name = "league-link"
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.75"
+rust-version = "1.80"
 description = "Async Rust client for the League of Legends Client (LCU) API — auth discovery, HTTPS requests, and WebSocket event streaming."
 license = "MIT"
 repository = "https://github.com/QAQTam/league-link"

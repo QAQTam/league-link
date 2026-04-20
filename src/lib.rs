@@ -5,12 +5,12 @@
 //! `league-link` provides three primitives:
 //!
 //! 1. **Credential discovery** — [`authenticate`] / [`try_find_lcu`] /
-//!    [`try_find_lcu_via_lockfile`] locate a running client and extract
-//!    its local API port and auth token.
+//!    [`try_find_lcu_async`] / [`try_find_lcu_via_lockfile`] locate a running
+//!    client and extract its local API port and auth token.
 //! 2. **HTTP requests** — [`build_lcu_client`] + [`lcu_get`] / [`lcu_post`]
 //!    / [`lcu_delete`] issue typed requests against the local HTTPS server.
-//! 3. **WebSocket events** — [`ws_connect`] subscribes to all LCU events
-//!    and delivers them through a `tokio::sync::mpsc` channel.
+//! 3. **WebSocket events** — [`ws_connect`] or [`ws_connect_filtered`]
+//!    subscribe to LCU events and deliver them through an [`EventStream`].
 //!
 //! ## Example
 //!
@@ -28,8 +28,8 @@
 //! println!("summoner: {me}");
 //!
 //! // 3. Watch live events
-//! let mut rx = ws_connect(&creds, 128).await?;
-//! while let Some(event) = rx.recv().await {
+//! let mut stream = ws_connect(&creds, 128).await?;
+//! while let Some(event) = stream.recv().await {
 //!     println!("[{:?}] {}", event.event_type, event.uri);
 //! }
 //! # Ok(()) }
@@ -44,9 +44,15 @@ pub mod error;
 pub mod http;
 pub mod websocket;
 
-pub use auth::{authenticate, try_find_lcu, try_find_lcu_via_lockfile, Credentials};
+pub use auth::{
+    authenticate, try_find_lcu, try_find_lcu_async, try_find_lcu_via_lockfile, Credentials,
+};
 pub use error::LcuError;
 pub use http::{
-    build_lcu_client, lcu_delete, lcu_get, lcu_post, lcu_request, parse_marketing_version,
+    build_lcu_client, lcu_delete, lcu_get, lcu_post, lcu_request, lcu_request_with_body,
+    parse_marketing_version, DEFAULT_TIMEOUT,
 };
-pub use websocket::{connect as ws_connect, EventType, LcuEvent};
+pub use websocket::{
+    connect as ws_connect, connect_filtered as ws_connect_filtered, EventStream, EventType,
+    LcuEvent,
+};

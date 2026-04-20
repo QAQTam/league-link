@@ -10,6 +10,7 @@
 //!    unavailable (e.g. restricted child processes).
 
 use std::path::Path;
+use std::sync::LazyLock;
 
 use regex::Regex;
 use serde::{Deserialize, Serialize};
@@ -22,8 +23,16 @@ const PROCESS_NAME: &str = "LeagueClientUx";
 #[cfg(not(target_os = "windows"))]
 const PROCESS_NAME: &str = "LeagueClient";
 
-/// LCU API credentials extracted from the running League Client process.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+static PORT_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"--app-port=(\d+)").expect("static regex"));
+static PASS_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"--remoting-auth-token=([\w-]+)").expect("static regex"));
+
+/// LCU API credentials extracted from the running League Client.
+///
+/// `Debug` is implemented manually to redact the password — it is never
+/// printed to logs even if an instance is traced.
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Credentials {
     /// Local port the LCU HTTPS + WSS server is listening on.
     pub port: u16,
@@ -31,6 +40,16 @@ pub struct Credentials {
     pub password: String,
     /// Process ID of the League Client.
     pub pid: u32,
+}
+
+impl std::fmt::Debug for Credentials {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Credentials")
+            .field("port", &self.port)
+            .field("pid", &self.pid)
+            .field("password", &"***")
+            .finish()
+    }
 }
 
 impl Credentials {
@@ -52,10 +71,17 @@ impl Credentials {
     }
 }
 
-/// Attempt to find a running League Client **once**.
+/// Attempt to find a running League Client **once**. Blocking.
 ///
-/// Returns `None` if the process is not found or if its command-line
-/// arguments haven't fully appeared yet (the process may still be starting).
+/// Returns `None` if no matching process is found, or if none of the matching
+/// processes have fully initialised command-line arguments yet (protected
+/// child processes, or a client that's still starting up). A partial match on
+/// one process does **not** short-circuit — the scan continues to subsequent
+/// processes.
+///
+/// This call enumerates every OS process and is therefore **blocking**. On a
+/// tokio runtime, prefer [`try_find_lcu_async`] so worker threads are not
+/// stalled.
 pub fn try_find_lcu() -> Option<Credentials> {
     let mut sys = System::new();
     sys.refresh_processes_specifics(
@@ -63,9 +89,6 @@ pub fn try_find_lcu() -> Option<Credentials> {
         true,
         ProcessRefreshKind::everything(),
     );
-
-    let port_re = Regex::new(r"--app-port=(\d+)").ok()?;
-    let pass_re = Regex::new(r"--remoting-auth-token=([\w-]+)").ok()?;
 
     for (pid, process) in sys.processes() {
         let name = process.name().to_string_lossy();
@@ -80,20 +103,32 @@ pub fn try_find_lcu() -> Option<Credentials> {
             .collect::<Vec<_>>()
             .join(" ");
 
-        let port_cap = port_re.captures(&cmdline)?;
-        let pass_cap = pass_re.captures(&cmdline)?;
-
-        let port: u16 = port_cap.get(1)?.as_str().parse().ok()?;
-        let password = pass_cap.get(1)?.as_str().to_string();
+        let Some(port_cap) = PORT_RE.captures(&cmdline) else { continue };
+        let Some(pass_cap) = PASS_RE.captures(&cmdline) else { continue };
+        let Some(port_match) = port_cap.get(1) else { continue };
+        let Some(pass_match) = pass_cap.get(1) else { continue };
+        let Ok(port) = port_match.as_str().parse::<u16>() else { continue };
 
         return Some(Credentials {
             port,
-            password,
+            password: pass_match.as_str().to_string(),
             pid: pid.as_u32(),
         });
     }
 
     None
+}
+
+/// Async wrapper around [`try_find_lcu`].
+///
+/// The process scan is blocking, so it is dispatched via
+/// [`tokio::task::spawn_blocking`]. Returns `None` if either the scan itself
+/// finds nothing or the blocking task is cancelled.
+pub async fn try_find_lcu_async() -> Option<Credentials> {
+    tokio::task::spawn_blocking(try_find_lcu)
+        .await
+        .ok()
+        .flatten()
 }
 
 /// Parse a `lockfile` written by the League Client.
@@ -123,11 +158,10 @@ pub fn try_find_lcu_via_lockfile(lockfile_path: impl AsRef<Path>) -> Result<Cred
     Ok(Credentials { port, password, pid })
 }
 
-/// Poll until a running League Client is found.
+/// Poll until a running League Client is found, using [`try_find_lcu_async`].
 ///
-/// Calls [`try_find_lcu`] in a loop, sleeping `poll_interval_ms` between
-/// attempts. Returns [`LcuError::AuthTimeout`] after `timeout_secs` seconds
-/// if the client is never found.
+/// Sleeps `poll_interval_ms` between attempts. Returns [`LcuError::AuthTimeout`]
+/// after `timeout_secs` seconds if the client is never found.
 pub async fn authenticate(
     poll_interval_ms: u64,
     timeout_secs: u64,
@@ -135,7 +169,7 @@ pub async fn authenticate(
     let deadline =
         tokio::time::Instant::now() + tokio::time::Duration::from_secs(timeout_secs);
     loop {
-        if let Some(creds) = try_find_lcu() {
+        if let Some(creds) = try_find_lcu_async().await {
             return Ok(creds);
         }
         if tokio::time::Instant::now() >= deadline {
@@ -160,6 +194,18 @@ mod tests {
         assert_eq!(creds.basic_auth(), "Basic cmlvdDphYmM=");
         assert_eq!(creds.lcu_base_url(), "https://127.0.0.1:12345");
         assert_eq!(creds.lcu_ws_url(), "wss://127.0.0.1:12345");
+    }
+
+    #[test]
+    fn debug_redacts_password() {
+        let creds = Credentials {
+            port: 1,
+            password: "topsecret".into(),
+            pid: 2,
+        };
+        let rendered = format!("{:?}", creds);
+        assert!(!rendered.contains("topsecret"));
+        assert!(rendered.contains("***"));
     }
 
     #[test]

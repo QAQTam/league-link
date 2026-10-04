@@ -4,7 +4,7 @@
 [![docs.rs](https://docs.rs/league-link/badge.svg)](https://docs.rs/league-link)
 [![CI](https://github.com/QAQTam/league-link/actions/workflows/ci.yml/badge.svg)](https://github.com/QAQTam/league-link/actions/workflows/ci.yml)
 [![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
-[![MSRV: 1.80](https://img.shields.io/badge/MSRV-1.80-orange.svg)](#平台支持)
+[![MSRV: 1.98](https://img.shields.io/badge/MSRV-1.98-orange.svg)](#平台支持)
 
 [English](./README.md) | **简体中文**
 
@@ -52,12 +52,12 @@
 
 ```toml
 [dependencies]
-league-link = "0.1"
+league-link = "0.3"
 tokio = { version = "1", features = ["full"] }
 serde_json = "1"   # 可选,如果你用 `Value` 接收响应
 ```
 
-**MSRV**:Rust 1.80(使用了 `std::sync::LazyLock`)。
+**MSRV**:Rust 1.98。
 
 ## 快速开始
 
@@ -407,7 +407,7 @@ let _: Value = lcu_post(
 lockfile 或客户端日志策略。腾讯 WeGame 安装写入的是 0 字节 lockfile,
 此时客户端日志策略是可靠的兜底。
 
-MSRV 为 **Rust 1.80**,CI 强制。
+MSRV 为 **Rust 1.98**,CI 强制。
 
 ## 设计说明
 

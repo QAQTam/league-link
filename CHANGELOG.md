@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] — 2026-10-04
+
+### Changed
+- **Breaking:** Raised the MSRV from 1.80 to **1.98**. `rust-version` is
+  part of the crate's support contract — toolchains older than 1.98 will
+  not build this release.
+- Track latest dependencies now that the MSRV allows it: `sysinfo 0.39`
+  (up from the 0.36 cap), `reqwest 0.13.5`, and the rest of the tree
+  refreshed in the committed `Cargo.lock`. The MSRV CI job benefits from
+  cargo ≥ 1.84's MSRV-aware resolver, which filters out dependency
+  releases requiring a newer rustc on its own.
+- Fixed the installation snippet in both READMEs, which still suggested
+  `league-link = "0.1"`.
+
 ## [0.2.0] — 2026-10-04
 
 ### Added

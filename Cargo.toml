@@ -1,8 +1,8 @@
 [package]
 name = "league-link"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
-rust-version = "1.80"
+rust-version = "1.98"
 description = "Async Rust client for the League of Legends Client (LCU) API — auth discovery, HTTPS requests, and WebSocket event streaming."
 license = "MIT"
 repository = "https://github.com/QAQTam/league-link"
@@ -20,9 +20,7 @@ futures-util = "0.3"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 regex = "1"
-# sysinfo is capped below 0.37 because every later release requires
-# rustc >= 1.88, which would break the advertised 1.80 MSRV.
-sysinfo = "0.36"
+sysinfo = "0.39"
 base64 = "0.22"
 thiserror = "2"
 

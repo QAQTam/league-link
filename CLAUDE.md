@@ -51,7 +51,7 @@
 
 ### 允许列表(和禁止清单对偶)
 
-- 内部 `static` 常量 / 正则 / 配置 —— 用 `std::sync::LazyLock`,不要 `once_cell`(MSRV 已到 1.80)
+- 内部 `static` 常量 / 正则 / 配置 —— 用 `std::sync::LazyLock`,不要 `once_cell`(MSRV 已到 1.98)
 - 返回错误前做一次 `resp.text().await` 兜底读 body —— 便于调用方诊断
 - `tokio::task::spawn_blocking` 包装所有阻塞系统调用(`sysinfo`、`std::fs`)
 
@@ -145,7 +145,7 @@ LCU,集成测试只能 `#[ignore]`)。
 **改 CI 前想清楚**:即使 README 只宣称 Windows 支持,CI 仍跑多平台
 是为了捕获 `#[cfg(target_os)]` 分支的编译失败。不要轻易删矩阵。
 
-还有一个 MSRV 1.80 的独立 job。用了 1.80 之后的语法会被它卡住 ——
+还有一个 MSRV 1.98 的独立 job。用了 1.98 之后的语法会被它卡住 ——
 这是**功能**,不是 bug。
 
 ---

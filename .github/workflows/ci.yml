@@ -33,12 +33,13 @@ jobs:
       - run: cargo clippy --all-targets -- -D warnings
 
   msrv:
-    name: MSRV (1.80)
+    name: MSRV (1.98)
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@1.80
+      - uses: dtolnay/rust-toolchain@1.98
       - uses: Swatinem/rust-cache@v2
-      # The committed Cargo.lock pins a 1.80-compatible dependency tree;
-      # deleting it makes this job resolve latest deps and fail.
+      # Cargo 1.98 resolves with MSRV awareness, so new dependency releases
+      # requiring a newer rustc are filtered out automatically; the
+      # committed Cargo.lock keeps the tree additionally reproducible.
       - run: cargo build --all-targets

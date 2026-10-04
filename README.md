@@ -4,7 +4,7 @@
 [![docs.rs](https://docs.rs/league-link/badge.svg)](https://docs.rs/league-link)
 [![CI](https://github.com/QAQTam/league-link/actions/workflows/ci.yml/badge.svg)](https://github.com/QAQTam/league-link/actions/workflows/ci.yml)
 [![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
-[![MSRV: 1.80](https://img.shields.io/badge/MSRV-1.80-orange.svg)](#platform-support)
+[![MSRV: 1.98](https://img.shields.io/badge/MSRV-1.98-orange.svg)](#platform-support)
 
 **English** | [简体中文](./README_zh-CN.md)
 
@@ -53,12 +53,12 @@ for Node.js.
 
 ```toml
 [dependencies]
-league-link = "0.1"
+league-link = "0.3"
 tokio = { version = "1", features = ["full"] }
 serde_json = "1"   # optional, if you use `Value` as the response type
 ```
 
-**MSRV:** Rust 1.80 (requires `std::sync::LazyLock`).
+**MSRV:** Rust 1.98.
 
 ## Quick Start
 
@@ -392,7 +392,7 @@ cannot read its command line — use the lockfile or client-log strategy
 instead. Tencent (WeGame) installs write a zero-byte lockfile, so the
 client-log strategy is the dependable fallback there.
 
-MSRV is **Rust 1.80**, enforced by CI.
+MSRV is **Rust 1.98**, enforced by CI.
 
 ## Design Notes
 

@@ -7,7 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] — 2026-10-04
+
 ### Added
+- `try_find_lcu_via_logs` — discover credentials from the client's own
+  `*_LeagueClientUx.log` session logs. Works when the process command line
+  is unreadable (client runs elevated, tool does not) and the lockfile is
+  empty or missing — the normal state of Tencent (WeGame) installs.
+- `LcuError::LogParse` — surfaced when client-log discovery finds no UX
+  session log in the directory, or no connection arguments in the newest one.
 - `try_find_lcu_async` — tokio-friendly wrapper around the blocking process
   scan. `authenticate` now uses it internally.
 - `lcu_request_with_body` and `lcu_post` now accept any `Serialize` body,
@@ -26,6 +34,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   tests on Linux, Windows, and macOS.
 
 ### Changed
+- Cap `sysinfo` at 0.36 — every later release requires rustc ≥ 1.88,
+  which would silently break the advertised 1.80 MSRV. It is an internal
+  dependency; the public API is unchanged.
+- Commit `Cargo.lock`, pinned to a Rust-1.80-compatible dependency tree
+  (`reqwest 0.13.3`, `hyper-util 0.1.20`, `zeroize 1.8.2`,
+  `idna_adapter 1.1.0`), so the MSRV CI job resolves deterministically.
 - **Breaking (pre-release):** `LcuError::Status(u16)` → `LcuError::Status { code, body }`.
 - **Breaking (pre-release):** `lcu_post` now takes `&impl Serialize` instead
   of `&serde_json::Value`. Call sites that already pass a `Value` continue
@@ -42,6 +56,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   password — prevents accidental leakage via logs and panic messages.
 
 ### Fixed
+- The `connect_filtered` doctest called a name that is not re-exported at
+  the crate root, failing the `cargo test` doc suite.
 - `try_find_lcu` no longer short-circuits to `None` when the first
   matching process has an empty command line (e.g. a protected child
   process). The scan now continues to subsequent processes.

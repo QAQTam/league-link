@@ -34,8 +34,9 @@ for Node.js.
 
 ## Features
 
-- **Credential discovery** — scan the running `LeagueClientUx` process or
-  parse a `lockfile` to obtain the local port and auth token.
+- **Credential discovery** — scan the running `LeagueClientUx` process,
+  parse a `lockfile`, or read the client's own `LeagueClientUx` log files
+  to obtain the local port and auth token.
 - **Typed HTTP client** — one call, one deserialized response. TLS is
   pre-configured for the Riot self-signed certificate; a 10-second
   per-request timeout is applied by default.
@@ -97,10 +98,13 @@ cargo run --example watch_events
 
 ### Credential Discovery
 
-Three strategies are available. Pick the one that matches your situation:
+Pick the strategy that matches your situation:
 
 ```rust
-use league_link::{authenticate, try_find_lcu, try_find_lcu_async, try_find_lcu_via_lockfile};
+use league_link::{
+    authenticate, try_find_lcu, try_find_lcu_async, try_find_lcu_via_lockfile,
+    try_find_lcu_via_logs,
+};
 
 // (A) Async poll loop — recommended for most apps.
 //     First arg: poll interval (ms). Second arg: timeout (s).
@@ -121,7 +125,21 @@ if let Some(creds) = try_find_lcu_async().await {
 let creds = try_find_lcu_via_lockfile(
     r"C:\Riot Games\League of Legends\lockfile"
 )?;
+
+// (E) Last-resort fallback: parse the newest `*_LeagueClientUx.log` the
+//     client wrote. Works when the process command line needs elevation
+//     you don't have and the lockfile is empty (Tencent/WeGame installs
+//     write a zero-byte one). Pass the directory holding the UX logs.
+let creds = try_find_lcu_via_logs(
+    r"D:\League of Legends\Game\Logs\LeagueClient Logs", // Tencent (国服) layout
+)?;
 ```
+
+Strategy (E) is the dependable last resort: each session log embeds the
+client's full command line (including `--app-port` and
+`--remoting-auth-token`) and is readable without elevation. The newest
+log is used, so if it belongs to a dead session the credentials fail to
+connect — re-run discovery (or pair it with a process scan) on failure.
 
 The `Credentials` type exposes the low-level building blocks if you
 need them for non-standard transports:
@@ -304,16 +322,23 @@ while let Some(event) = stream.recv().await {
 }
 ```
 
-### Use the lockfile when process scanning is unreliable
+### Fall back through lockfile, then client logs
 
 ```rust
-use league_link::{try_find_lcu_async, try_find_lcu_via_lockfile};
+use league_link::{try_find_lcu_async, try_find_lcu_via_lockfile, try_find_lcu_via_logs};
 
+// 1) process scan → 2) lockfile → 3) newest UX session log.
 let creds = match try_find_lcu_async().await {
     Some(c) => c,
-    None => try_find_lcu_via_lockfile(
+    None => match try_find_lcu_via_lockfile(
         r"C:\Riot Games\League of Legends\lockfile",
-    )?,
+    ) {
+        Ok(c) => c,
+        // Logs dir on Tencent (国服) installs; other layouts differ.
+        Err(_) => try_find_lcu_via_logs(
+            r"D:\League of Legends\Game\Logs\LeagueClient Logs",
+        )?,
+    },
 };
 ```
 
@@ -327,6 +352,7 @@ let creds = match try_find_lcu_async().await {
 | `try_find_lcu` | `fn() -> Option<Credentials>` | Blocking one-shot scan. |
 | `try_find_lcu_async` | `async fn() -> Option<Credentials>` | Non-blocking wrapper (uses `spawn_blocking`). |
 | `try_find_lcu_via_lockfile` | `fn(path) -> Result<Credentials, LcuError>` | Parse `name:pid:port:pw:proto` file. |
+| `try_find_lcu_via_logs` | `fn(logs_dir) -> Result<Credentials, LcuError>` | Parse newest `*_LeagueClientUx.log`. |
 | `Credentials::basic_auth` | `fn(&self) -> String` | `"Basic <base64>"`. |
 | `Credentials::lcu_base_url` | `fn(&self) -> String` | `https://127.0.0.1:<port>`. |
 | `Credentials::lcu_ws_url` | `fn(&self) -> String` | `wss://127.0.0.1:<port>`. |
@@ -357,9 +383,14 @@ let creds = match try_find_lcu_async().await {
 
 ## Platform Support
 
-| OS | Process scan | Lockfile | HTTP / WS |
-|---|---|---|---|
-| **Windows** | ✅ `LeagueClientUx` | ✅ | ✅ |
+| OS | Process scan | Lockfile | Client logs | HTTP / WS |
+|---|---|---|---|---|
+| **Windows** | ✅ `LeagueClientUx` | ✅ | ✅ `*_LeagueClientUx.log` | ✅ |
+
+If the client runs elevated and your process does not, the process scan
+cannot read its command line — use the lockfile or client-log strategy
+instead. Tencent (WeGame) installs write a zero-byte lockfile, so the
+client-log strategy is the dependable fallback there.
 
 MSRV is **Rust 1.80**, enforced by CI.
 

@@ -158,8 +158,14 @@ mod tests {
 
     #[test]
     fn version_parsing() {
-        assert_eq!(parse_marketing_version("4.21.614.6789"), Some("14.21".into()));
-        assert_eq!(parse_marketing_version("4.3.614.6789"), Some("14.03".into()));
+        assert_eq!(
+            parse_marketing_version("4.21.614.6789"),
+            Some("14.21".into())
+        );
+        assert_eq!(
+            parse_marketing_version("4.3.614.6789"),
+            Some("14.03".into())
+        );
         assert_eq!(parse_marketing_version("bad"), None);
         assert_eq!(parse_marketing_version(""), None);
     }

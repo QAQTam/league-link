@@ -54,4 +54,10 @@ pub enum LcuError {
     /// The lockfile contents did not match the expected `name:pid:port:password:protocol` layout.
     #[error("lockfile parse error: {0}")]
     LockfileParse(String),
+
+    /// Client log discovery failed — the directory holds no
+    /// `*_LeagueClientUx.log` session log, or the newest one carries no
+    /// `--app-port` / `--remoting-auth-token` arguments.
+    #[error("client log parse error: {0}")]
+    LogParse(String),
 }

@@ -36,8 +36,8 @@
 
 ## 特性
 
-- **凭证自动发现** —— 扫描 `LeagueClientUx` 进程,或解析 `lockfile`,
-  自动拿到本地 API 的端口和 token。
+- **凭证自动发现** —— 扫描 `LeagueClientUx` 进程、解析 `lockfile`,
+  或读取客户端自身的 `LeagueClientUx` 日志,自动拿到本地 API 的端口和 token。
 - **类型化 HTTP 客户端** —— 一次调用 + 泛型 `T`,响应直接反序列化。
   Riot 自签证书已预配置,默认 10 秒超时兜底。
 - **WebSocket 事件流** —— 可订阅全部事件,也可在**服务端**过滤特定
@@ -97,10 +97,13 @@ cargo run --example watch_events
 
 ### 获取凭证
 
-四种方式,按实际场景选:
+按实际场景选择:
 
 ```rust
-use league_link::{authenticate, try_find_lcu, try_find_lcu_async, try_find_lcu_via_lockfile};
+use league_link::{
+    authenticate, try_find_lcu, try_find_lcu_async, try_find_lcu_via_lockfile,
+    try_find_lcu_via_logs,
+};
 
 // (A) 异步轮询 —— 大多数应用首选。
 //     第一个参数:轮询间隔 (ms)。第二个:超时 (s)。
@@ -121,7 +124,20 @@ if let Some(creds) = try_find_lcu_async().await {
 let creds = try_find_lcu_via_lockfile(
     r"C:\Riot Games\League of Legends\lockfile"
 )?;
+
+// (E) 最终兜底:解析客户端写入的最新 `*_LeagueClientUx.log`。
+//     当进程命令行需要你没有的提权、且 lockfile 是空文件
+//     (腾讯 WeGame 安装就是如此)时,这条路径依然可用。
+//     传入存放 UX 会话日志的目录。
+let creds = try_find_lcu_via_logs(
+    r"D:\League of Legends\Game\Logs\LeagueClient Logs", // 国服(腾讯)目录结构
+)?;
 ```
+
+方式 (E) 是最可靠的兜底:每个会话日志都嵌有客户端的完整命令行
+(含 `--app-port` 与 `--remoting-auth-token`),且日志无需提权即可读取。
+策略取最新的日志;若它属于已退出的旧会话,拿到的凭证会连不上 ——
+连接失败时重新发现(或结合进程扫描判断存活)即可。
 
 `Credentials` 暴露了底层构件,方便你做自定义传输:
 
@@ -299,16 +315,23 @@ while let Some(event) = stream.recv().await {
 }
 ```
 
-### 进程扫不到时 fallback 到 lockfile
+### 进程扫不到时:lockfile → 客户端日志 逐级兜底
 
 ```rust
-use league_link::{try_find_lcu_async, try_find_lcu_via_lockfile};
+use league_link::{try_find_lcu_async, try_find_lcu_via_lockfile, try_find_lcu_via_logs};
 
+// 1) 进程扫描 → 2) lockfile → 3) 最新 UX 会话日志。
 let creds = match try_find_lcu_async().await {
     Some(c) => c,
-    None => try_find_lcu_via_lockfile(
+    None => match try_find_lcu_via_lockfile(
         r"C:\Riot Games\League of Legends\lockfile",
-    )?,
+    ) {
+        Ok(c) => c,
+        // 国服(腾讯)安装的日志目录;其他安装结构路径不同。
+        Err(_) => try_find_lcu_via_logs(
+            r"D:\League of Legends\Game\Logs\LeagueClient Logs",
+        )?,
+    },
 };
 ```
 
@@ -345,6 +368,7 @@ let _: Value = lcu_post(
 | `try_find_lcu` | `fn() -> Option<Credentials>` | 阻塞的单次扫描。 |
 | `try_find_lcu_async` | `async fn() -> Option<Credentials>` | 非阻塞包装(`spawn_blocking`)。 |
 | `try_find_lcu_via_lockfile` | `fn(path) -> Result<Credentials, LcuError>` | 解析 `name:pid:port:pw:proto`。 |
+| `try_find_lcu_via_logs` | `fn(logs_dir) -> Result<Credentials, LcuError>` | 解析最新的 `*_LeagueClientUx.log`。 |
 | `Credentials::basic_auth` | `fn(&self) -> String` | `"Basic <base64>"`。 |
 | `Credentials::lcu_base_url` | `fn(&self) -> String` | `https://127.0.0.1:<port>`。 |
 | `Credentials::lcu_ws_url` | `fn(&self) -> String` | `wss://127.0.0.1:<port>`。 |
@@ -375,9 +399,13 @@ let _: Value = lcu_post(
 
 ## 平台支持
 
-| 系统 | 进程扫描 | Lockfile | HTTP / WS |
-|---|---|---|---|
-| **Windows** | ✅ `LeagueClientUx` | ✅ | ✅ |
+| 系统 | 进程扫描 | Lockfile | 客户端日志 | HTTP / WS |
+|---|---|---|---|---|
+| **Windows** | ✅ `LeagueClientUx` | ✅ | ✅ `*_LeagueClientUx.log` | ✅ |
+
+若客户端以管理员运行而你的程序没有提权,进程扫描读不到命令行 —— 请改用
+lockfile 或客户端日志策略。腾讯 WeGame 安装写入的是 0 字节 lockfile,
+此时客户端日志策略是可靠的兜底。
 
 MSRV 为 **Rust 1.80**,CI 强制。
 

@@ -136,7 +136,7 @@ pub async fn connect(credentials: &Credentials, buffer: usize) -> Result<EventSt
 ///
 /// ```no_run
 /// # async fn demo(creds: &league_link::Credentials) -> Result<(), league_link::LcuError> {
-/// let mut stream = league_link::connect_filtered(
+/// let mut stream = league_link::ws_connect_filtered(
 ///     creds,
 ///     &["/lol-gameflow/v1/session", "/lol-lobby/v2/lobby"],
 ///     64,
@@ -150,7 +150,12 @@ pub async fn connect_filtered(
 ) -> Result<EventStream, LcuError> {
     let topics: Vec<String> = uris
         .iter()
-        .map(|u| format!("OnJsonApiEvent_{}", u.trim_start_matches('/').replace('/', "_")))
+        .map(|u| {
+            format!(
+                "OnJsonApiEvent_{}",
+                u.trim_start_matches('/').replace('/', "_")
+            )
+        })
         .collect();
     connect_with_topics(credentials, &topics, buffer).await
 }
@@ -172,13 +177,9 @@ async fn connect_with_topics(
             .map_err(|e| LcuError::InvalidHeader(e.to_string()))?,
     );
 
-    let (mut ws_stream, _response) = connect_async_tls_with_config(
-        request,
-        None,
-        false,
-        Some(Connector::NativeTls(tls)),
-    )
-    .await?;
+    let (mut ws_stream, _response) =
+        connect_async_tls_with_config(request, None, false, Some(Connector::NativeTls(tls)))
+            .await?;
 
     for topic in topics {
         ws_stream

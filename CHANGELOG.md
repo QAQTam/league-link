@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] — 2026-11-13
+
+### Added
+- `ffi/` workspace crate (`league-link-ffi`) — a C ABI component that builds
+  `league_link.dll` for non-Rust callers (C/C++/C#/Python). Exposes credential
+  discovery, HTTP GET/POST/DELETE, and a polling-based event stream, with
+  caller-owned output buffers, thread-local error messages, and panic guards at
+  every boundary. Ships a `league_link.h` header. The core library is unchanged.
+- Windows version resource embedded in the DLL (`ffi/build.rs` via
+  `winresource`) so signed binaries carry the product name and version that
+  SignPath's artifact configuration enforces.
+- Tag-triggered release workflow (`.github/workflows/release.yml`): builds the
+  DLL on a GitHub-hosted Windows runner, uploads it as a workflow artifact, and
+  publishes it with SHA-256 checksums to a GitHub Release. Code signing via
+  SignPath is optional and auto-enables once `SIGNPATH_API_TOKEN` is configured
+  (with manual approval); until then the release ships the unsigned verifiable
+  build, labelled as such, so the project meets SignPath's "already released"
+  condition while approval is pending.
+- "Code signing policy" section in both READMEs (SignPath Foundation wording,
+  team roles, privacy statement) and a "Windows DLL (C ABI)" usage section.
+
+### Changed
+- The repository is now a Cargo workspace (`members = ["ffi"]`); CI builds,
+  tests, and lints with `--workspace` so the component is covered too.
+
 ## [0.3.0] — 2026-10-04
 
 ### Changed

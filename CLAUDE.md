@@ -21,6 +21,22 @@
 
 如果要做的东西和这个定位冲突,**不要做**,或者留到上层应用里做。
 
+### 官方 Windows 组件(`ffi/`)
+
+仓库是 Cargo workspace,`ffi/`(`league-link-ffi`)是**官方**的 C ABI 组件,
+产出 `league_link.dll`,供非 Rust 调用方使用,并作为 SignPath 签名的发行产物。
+它和本库定位**不冲突**:核心库 `src/` 一行不改、照常发 crates.io,ffi 只是薄封装。
+
+- **unsafe 只允许出现在 `ffi/`**。核心库 `#![forbid(unsafe_code)]` 红线不动;
+  FFI 边界的裸指针/跨语言内存只能在 ffi crate 里写。
+- **C ABI 是契约**。`ffi/league_link.h` 的函数签名、`LlCredentials` 布局、
+  `LL_*` 状态码一旦发布就要向后兼容;破坏性改动必须 bump `LL_ABI_VERSION`
+  并记入 CHANGELOG。
+- **版本同步**。`ffi/Cargo.toml` 的 `version` 必须和根 `Cargo.toml` 一致
+  (release.yml 会校验 tag 与两者都相等),这样 DLL 的 PE 版本资源才对得上。
+- **边界纪律**。每个 `extern "C"` 入口都要 catch panic(转 `LL_ERR_INTERNAL`),
+  输出走调用方缓冲区(不跨边界分配),错误信息走线程局部 `ll_last_error_message`。
+
 ---
 
 ## 代码规范
@@ -141,12 +157,19 @@ LCU,集成测试只能 `#[ignore]`)。
 
 ### CI 矩阵
 
-`.github/workflows/ci.yml` 会在 Linux / Windows / macOS 三平台跑完整套。
-**改 CI 前想清楚**:即使 README 只宣称 Windows 支持,CI 仍跑多平台
-是为了捕获 `#[cfg(target_os)]` 分支的编译失败。不要轻易删矩阵。
+`.github/workflows/ci.yml` 目前在 **windows-latest** 上跑 test / lint / MSRV
+三个 job,全部带 `--workspace`(覆盖核心库 + `ffi/` 组件)。README 只宣称
+Windows 支持,CI 与之一致;源码里的 `#[cfg(target_os)]` 分支保留不动。
+**改 CI 前想清楚**:加平台或删 job 都要有明确理由。
 
 还有一个 MSRV 1.98 的独立 job。用了 1.98 之后的语法会被它卡住 ——
 这是**功能**,不是 bug。
+
+另有 `.github/workflows/release.yml`:推 `v*` tag 触发,在 GitHub 托管
+Windows runner 上构建 DLL → upload-artifact → 挂 GitHub Release。**签名可选**:
+配了 `SIGNPATH_API_TOKEN` 就提交 SignPath 签名并等人工审批,没配就发未签名的
+可验证构建(Release 页注明状态)。**不要**把构建挪到 self-hosted runner
+(SignPath OSS 条件要求所有相关 job 跑在 GitHub 托管 agent 上)。
 
 ---
 
@@ -247,28 +270,34 @@ Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>
 
 ```sh
 cargo fmt --all -- --check
-cargo clippy --all-targets -- -D warnings
-cargo test --all-targets
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace --all-targets
 cargo doc --no-deps                   # 确保 docs.rs 能构建
-cargo publish --dry-run               # 验证打包
+cargo publish --dry-run               # 验证核心库打包
+cargo build --release -p league-link-ffi   # 确认 DLL 能出
 ```
 
 手动确认:
 
 - [ ] `CHANGELOG.md` 的 `[Unreleased]` 已重命名为版本号 + 日期
-- [ ] `Cargo.toml` 的 `version` 已 bump
+- [ ] 根 `Cargo.toml` **和** `ffi/Cargo.toml` 的 `version` 都已 bump 且一致
 - [ ] `Cargo.toml` 的 `rust-version` 还对得上实际 MSRV
 - [ ] 两份 README 都已同步
 - [ ] `examples/` 下的例子全部 `cargo run --example <name>` 跑过
 - [ ] 没有引入新的传递依赖暴露到公开 API
+- [ ] 若改了 C ABI,`LL_ABI_VERSION` 与 `ffi/league_link.h` 已同步更新
 
 确认完毕:
 
 ```sh
 git tag -a v0.x.y -m "Release v0.x.y"
-git push origin v0.x.y
-cargo publish
+git push origin v0.x.y      # 触发 release.yml:构建 DLL → SignPath 签名 → Release
+cargo publish               # 核心库照常发 crates.io
 ```
+
+推 tag 后:若已配置 SignPath,到后台**人工审批**该签名请求(release.yml 会
+原地等待,最长 4 小时),审批通过后签名产物自动挂上 GitHub Release;若尚未
+配置(批准前),则直接发布未签名的可验证构建。
 
 ---
 

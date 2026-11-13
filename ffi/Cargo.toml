@@ -1,0 +1,27 @@
+[package]
+name = "league-link-ffi"
+version = "0.4.0"
+edition = "2021"
+rust-version = "1.98"
+description = "C ABI component (Windows DLL) for league-link — local League of Legends Client (LCU) API access from any language."
+license = "MIT"
+repository = "https://github.com/QAQTam/league-link"
+publish = false
+
+[lib]
+# Output file name: league_link.dll. The core library is renamed below so
+# `league_link::*` paths inside this crate unambiguously mean the dependency.
+name = "league_link"
+crate-type = ["cdylib"]
+# The component is documented via league_link.h + the README, not rustdoc.
+# Disabling rustdoc also avoids an output-path collision with the core
+# library's `league_link` lib when running `cargo doc --workspace`.
+doc = false
+
+[dependencies]
+league-link-core = { package = "league-link", path = "..", version = "0.4.0" }
+tokio = { version = "1.51", features = ["rt"] }
+serde_json = "1"
+
+[target.'cfg(windows)'.build-dependencies]
+winresource = "0.1"

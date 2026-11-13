@@ -27,10 +27,12 @@ for Node.js.
   - [Error Handling](#error-handling)
 - [Recipes](#recipes)
 - [API Reference](#api-reference)
+- [Windows DLL (C ABI)](#windows-dll-c-abi)
 - [Platform Support](#platform-support)
 - [Design Notes](#design-notes)
 - [Relationship to `league-connect`](#relationship-to-league-connect)
 - [Roadmap](#roadmap)
+- [Code signing policy](#code-signing-policy)
 
 ## Features
 
@@ -381,6 +383,86 @@ let creds = match try_find_lcu_async().await {
 | `LcuEvent` | `{ uri, event_type, data }` | Raw JSON in `data`. |
 | `EventType` | `Create / Update / Delete / Other(String)` | Unknown names preserved. |
 
+## Windows DLL (C ABI)
+
+For callers outside Rust — C, C++, C#, Python, or anything that can call a C
+function — the project ships a **Windows component**, `league_link.dll`,
+built from the [`ffi/`](./ffi) workspace crate. It is a thin wrapper around this
+library; the core crate on crates.io is unchanged.
+
+Download `league_link.dll`, `league_link.h`, and `sha256sums.txt` from the
+[GitHub Releases](https://github.com/QAQTam/league-link/releases) page. Release
+DLLs are code-signed via SignPath once the project's SignPath Foundation
+approval is in place; until then they are unsigned verifiable builds. Each
+release states its signing status (see [Code signing policy](#code-signing-policy)).
+
+### Design contract
+
+- **Status codes.** Fallible functions return `int32_t`: `LL_OK` (`0`) or a
+  negative `LL_ERR_*`. Call `ll_last_error_message()` for a detail string
+  (thread-local, valid until the next failing call on that thread).
+- **Caller-owned memory.** Output JSON is written into a buffer you provide
+  (`out` + `out_cap`). Nothing is allocated across the DLL boundary, so there
+  is no cross-heap `free` hazard. If the buffer is too small the call returns
+  `LL_ERR_BUFFER_TOO_SMALL` and stores the required size (including the NUL) in
+  `*out_required` — call again with a bigger buffer.
+- **No callbacks.** Events are polled through an opaque `LlWatch` handle, so no
+  function pointer crosses the boundary.
+- **Panic safety.** Every entry point catches panics and returns
+  `LL_ERR_INTERNAL`; a panic never unwinds into your application.
+
+### Functions
+
+| Function | Purpose |
+|---|---|
+| `ll_discover(out)` | One-shot process scan → `LlCredentials`. |
+| `ll_discover_wait(out, timeout_secs)` | Poll until the client is found or timeout. |
+| `ll_get(port, password, path, out, cap, required)` | HTTP GET → compact JSON. |
+| `ll_post(port, password, path, body_json, out, cap, required)` | HTTP POST with a JSON body. |
+| `ll_delete(port, password, path, out, cap, required)` | HTTP DELETE. |
+| `ll_watch_open(port, password, uri_filter)` | Open an event stream (`uri_filter` null/empty = all). |
+| `ll_watch_poll(watch, out, cap, required)` | Non-blocking poll: `LL_OK`, `LL_ERR_NO_EVENT`, or `LL_ERR_CLOSED`. |
+| `ll_watch_close(watch)` | Close the stream and join its thread. |
+| `ll_last_error_message()` | Thread-local error detail string. |
+| `ll_version()` / `ll_abi_version()` | Component version / C ABI version. |
+
+`LlCredentials` is `#[repr(C)]`: `uint16_t port; uint32_t pid; char password[512];`.
+Event JSON has the shape `{"uri": "...", "eventType": "Create|Update|Delete|…", "data": {…}}`.
+
+### Example (C)
+
+```c
+#include "league_link.h"
+#include <stdio.h>
+
+int main(void) {
+    LlCredentials creds;
+    if (ll_discover_wait(&creds, 30) != LL_OK) {
+        printf("client not found: %s\n", ll_last_error_message());
+        return 1;
+    }
+
+    char buf[8192];
+    size_t need = 0;
+    int rc = ll_get(creds.port, creds.password,
+                    "/lol-summoner/v1/current-summoner",
+                    buf, sizeof buf, &need);
+    if (rc == LL_ERR_BUFFER_TOO_SMALL) {
+        /* realloc to `need` bytes and retry */
+    } else if (rc == LL_OK) {
+        printf("%s\n", buf);
+    } else {
+        printf("error: %s\n", ll_last_error_message());
+    }
+    return 0;
+}
+```
+
+Link against `league_link.dll` (or load it with `LoadLibrary` / `GetProcAddress`).
+Each HTTP call builds a private current-thread Tokio runtime and blocks until it
+completes; a watch handle owns a background thread, and `ll_watch_poll` never
+blocks.
+
 ## Platform Support
 
 | OS | Process scan | Lockfile | Client logs | HTTP / WS |
@@ -455,6 +537,35 @@ Issues and PRs welcome. Good first contributions:
 
 - Typed wrappers for common endpoints
 - Examples for specific workflows (champ-select overlay, lobby bot, …)
+
+## Code signing policy
+
+Free code signing provided by [SignPath.io](https://about.signpath.io),
+certificate by [SignPath Foundation](https://signpath.org).
+
+**Status:** SignPath Foundation approval is pending. Until signing is enabled,
+releases are unsigned verifiable builds produced by the same public workflow;
+each Release page states its signing status.
+
+The Windows component (`league_link.dll`) released on the
+[Releases page](https://github.com/QAQTam/league-link/releases) is built by a
+public GitHub Actions workflow (`.github/workflows/release.yml`) on a
+GitHub-hosted runner, submitted to SignPath, and signed only after a human
+approver reviews the release. The signature confirms the binary is an automated
+build of the source in this repository.
+
+**Team roles**
+
+- Committers and reviewers: [QAQTam](https://github.com/QAQTam)
+- Approvers: [QAQTam](https://github.com/QAQTam)
+
+**Privacy policy**
+
+This program will not transfer any information to other networked systems
+unless specifically requested by the user or the person installing or operating
+it. The component only connects to the local League Client (`127.0.0.1`) when
+the calling application explicitly asks it to; it performs no telemetry and
+contacts no remote server.
 
 ## License
 

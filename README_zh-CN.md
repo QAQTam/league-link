@@ -29,10 +29,12 @@
   - [错误处理](#错误处理)
 - [常见套路](#常见套路)
 - [API 速查表](#api-速查表)
+- [Windows DLL（C ABI）](#windows-dllc-abi)
 - [平台支持](#平台支持)
 - [设计说明](#设计说明)
 - [与 `league-connect` 的关系](#与-league-connect-的关系)
 - [Roadmap](#roadmap)
+- [代码签名政策](#代码签名政策)
 
 ## 特性
 
@@ -397,6 +399,81 @@ let _: Value = lcu_post(
 | `LcuEvent` | `{ uri, event_type, data }` | `data` 是 `serde_json::Value`。 |
 | `EventType` | `Create / Update / Delete / Other(String)` | 未知类型保留原字符串。 |
 
+## Windows DLL（C ABI）
+
+面向 Rust 之外的调用方 —— C、C++、C#、Python,或任何能调 C 函数的语言 ——
+项目额外提供一个 **Windows 组件** `league_link.dll`,由 workspace 里的
+[`ffi/`](./ffi) crate 构建。它是本库的一层薄封装;crates.io 上的核心库保持不变。
+
+到 [GitHub Releases](https://github.com/QAQTam/league-link/releases) 页下载
+`league_link.dll`、`league_link.h` 和 `sha256sums.txt`。待项目的 SignPath
+Foundation 批准到位后,发行版 DLL 会经 SignPath 代码签名;在此之前为未签名的
+可验证构建。每个 Release 都会注明其签名状态(见[代码签名政策](#代码签名政策))。
+
+### 设计约定
+
+- **状态码。** 可失败函数返回 `int32_t`:`LL_OK`(`0`)或负的 `LL_ERR_*`。
+  调 `ll_last_error_message()` 取详细信息(线程局部,有效期到该线程下一次
+  失败调用为止)。
+- **调用方持有内存。** 输出 JSON 写进你提供的缓冲区(`out` + `out_cap`)。
+  不跨 DLL 边界分配内存,因此没有跨堆 `free` 的隐患。缓冲区不够时返回
+  `LL_ERR_BUFFER_TOO_SMALL`,并把所需大小(含 NUL)写入 `*out_required` ——
+  换更大的缓冲区再调一次即可。
+- **无回调。** 事件通过不透明句柄 `LlWatch` 轮询获取,没有函数指针跨越边界。
+- **panic 安全。** 每个入口都捕获 panic 并返回 `LL_ERR_INTERNAL`,绝不会把
+  panic  unwind 进你的程序。
+
+### 函数一览
+
+| 函数 | 作用 |
+|---|---|
+| `ll_discover(out)` | 单次进程扫描 → `LlCredentials`。 |
+| `ll_discover_wait(out, timeout_secs)` | 轮询直到找到客户端或超时。 |
+| `ll_get(port, password, path, out, cap, required)` | HTTP GET → 紧凑 JSON。 |
+| `ll_post(port, password, path, body_json, out, cap, required)` | HTTP POST,带 JSON body。 |
+| `ll_delete(port, password, path, out, cap, required)` | HTTP DELETE。 |
+| `ll_watch_open(port, password, uri_filter)` | 打开事件流(`uri_filter` 为 null/空 = 全部)。 |
+| `ll_watch_poll(watch, out, cap, required)` | 非阻塞轮询:`LL_OK` / `LL_ERR_NO_EVENT` / `LL_ERR_CLOSED`。 |
+| `ll_watch_close(watch)` | 关闭事件流并 join 后台线程。 |
+| `ll_last_error_message()` | 线程局部的错误详情字符串。 |
+| `ll_version()` / `ll_abi_version()` | 组件版本 / C ABI 版本。 |
+
+`LlCredentials` 是 `#[repr(C)]`:`uint16_t port; uint32_t pid; char password[512];`。
+事件 JSON 形如 `{"uri": "...", "eventType": "Create|Update|Delete|…", "data": {…}}`。
+
+### 示例（C）
+
+```c
+#include "league_link.h"
+#include <stdio.h>
+
+int main(void) {
+    LlCredentials creds;
+    if (ll_discover_wait(&creds, 30) != LL_OK) {
+        printf("未找到客户端: %s\n", ll_last_error_message());
+        return 1;
+    }
+
+    char buf[8192];
+    size_t need = 0;
+    int rc = ll_get(creds.port, creds.password,
+                    "/lol-summoner/v1/current-summoner",
+                    buf, sizeof buf, &need);
+    if (rc == LL_ERR_BUFFER_TOO_SMALL) {
+        /* 按 need 重新分配缓冲区后再调一次 */
+    } else if (rc == LL_OK) {
+        printf("%s\n", buf);
+    } else {
+        printf("错误: %s\n", ll_last_error_message());
+    }
+    return 0;
+}
+```
+
+链接 `league_link.dll`(或用 `LoadLibrary` / `GetProcAddress` 动态加载)。
+每次 HTTP 调用会建一个私有的 current-thread Tokio 运行时并阻塞到完成;
+watch 句柄持有一个后台线程,`ll_watch_poll` 永不阻塞。
+
 ## 平台支持
 
 | 系统 | 进程扫描 | Lockfile | 客户端日志 | HTTP / WS |
@@ -460,6 +537,31 @@ Basic Auth → WAMP 订阅),但代码是从零重写,不是翻译。
 
 - 常用端点的类型化封装
 - 特定场景示例(选英雄助手、房间机器人、BP 叠加层 ...)
+
+## 代码签名政策
+
+Free code signing provided by [SignPath.io](https://about.signpath.io),
+certificate by [SignPath Foundation](https://signpath.org).
+
+**状态:** SignPath Foundation 批准尚在审核中。签名启用前,发行版为同一公开
+工作流产出的未签名可验证构建;每个 Release 页都会注明其签名状态。
+
+[Releases 页](https://github.com/QAQTam/league-link/releases)上的 Windows 组件
+(`league_link.dll`)由公开的 GitHub Actions 工作流
+(`.github/workflows/release.yml`)在 GitHub 托管 runner 上构建,提交给
+SignPath,并经人工审批后才签名。签名证明该二进制是本仓库源码的自动化构建产物。
+
+**团队角色**
+
+- 提交者与评审者(Committers and reviewers):[QAQTam](https://github.com/QAQTam)
+- 审批者(Approvers):[QAQTam](https://github.com/QAQTam)
+
+**隐私政策**
+
+This program will not transfer any information to other networked systems
+unless specifically requested by the user or the person installing or operating
+it. 本组件仅在调用方明确要求时才连接本机 League Client(`127.0.0.1`),
+不做任何遥测,也不访问任何远程服务器。
 
 ## 许可
 
